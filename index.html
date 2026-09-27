@@ -1,0 +1,1792 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>香港樓盤紀錄、Wishlist & 置業開支比較器 (Google Sheet 雲端同步版)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Vue 3 CDN -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- Google Fonts Inter & Noto Sans HK -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+HK:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            firstHand: '#059669', // Emerald
+                            firstHandLight: '#ecfdf5',
+                            secondHand: '#2563eb', // Blue
+                            secondHandLight: '#eff6ff',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'Noto Sans HK', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        [v-cloak] { display: none; }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        .drag-ghost {
+            opacity: 0.4;
+            background-color: #e0f2fe !important;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-slate-800 min-h-screen antialiased selection:bg-teal-500 selection:text-white">
+
+<div id="app" v-cloak class="pb-16">
+    
+    <!-- Header Banner -->
+    <header class="bg-slate-900 text-white shadow-md sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col sm:flex-row justify-between items-center gap-3">
+            <div class="flex items-center space-x-3">
+                <div class="p-2 bg-gradient-to-tr from-teal-500 to-blue-600 rounded-xl shadow-inner">
+                    <i class="fa-solid fa-house-laptop text-xl text-white"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="text-lg sm:text-xl font-bold tracking-tight">香港樓盤紀錄 & 置業開支比較器</h1>
+                        <span class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">Google Sheet 雲端版</span>
+                    </div>
+                    <p class="text-xs text-slate-400">跨手機同步 · 一手樓發展商資助邏輯修正 · HTML刪除時數據庫永久保留</p>
+                </div>
+            </div>
+            
+            <!-- Quick Navigation & Cloud Config buttons -->
+            <div class="flex items-center space-x-2">
+                <!-- Sync status badge -->
+                <button @click="openConfigModal" class="text-xs px-3 py-1.5 rounded-lg transition border flex items-center gap-1.5"
+                        :class="googleSheetUrl ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60 hover:bg-emerald-900' : 'bg-amber-950/80 text-amber-300 border-amber-700/60 hover:bg-amber-900 animate-pulse'">
+                    <i class="fa-solid" :class="isSyncing ? 'fa-spinner fa-spin text-amber-400' : (googleSheetUrl ? 'fa-cloud text-emerald-400' : 'fa-cloud-arrow-up text-amber-400')"></i>
+                    <span>{{ isSyncing ? '數據同步中...' : (googleSheetUrl ? '已連結 Google Sheet' : '未設定雲端網址') }}</span>
+                </button>
+
+                <a href="#wishlist-section" class="text-xs px-3 py-1.5 bg-teal-600 hover:bg-teal-500 text-white font-medium rounded-lg transition shadow flex items-center gap-1.5">
+                    <i class="fa-solid fa-heart"></i> Wishlist ({{ wishlist.length }})
+                </a>
+                <button @click="openResetModal" class="text-xs px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition border border-slate-700 flex items-center gap-1" title="重置本地數據">
+                    <i class="fa-solid fa-rotate-left"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Notification Toast -->
+    <div v-if="toastMessage" class="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl border border-slate-700 flex items-center gap-3 animate-bounce">
+        <i class="fa-solid" :class="toastType === 'error' ? 'fa-circle-xmark text-rose-400' : 'fa-circle-check text-emerald-400'"></i>
+        <span class="text-sm font-medium">{{ toastMessage }}</span>
+    </div>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+
+        <!-- ========================================== -->
+        <!-- SECTION 1: REAL ESTATE WISHLIST & DATABASE -->
+        <!-- ========================================== -->
+        <section id="wishlist-section" class="mb-10 bg-white rounded-2xl shadow-sm border border-slate-200/90 overflow-hidden">
+            <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 px-6 py-4 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <i class="fa-solid fa-bookmark text-amber-400 text-lg"></i>
+                        <h2 class="text-lg font-bold">真實樓盤紀錄 & Wishlist 願望清單</h2>
+                    </div>
+                    <p class="text-xs text-slate-300 mt-0.5">跨手機雲端同步：任何手機新增/修改數據，全網頁皆可實時拉取。網頁刪除紀錄時，Google Sheet 紀錄會安全保留（標註 DELETED）。</p>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <button @click="fetchFromGoogleSheet" :disabled="isSyncing" class="text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-teal-300 font-semibold rounded-lg border border-slate-700 transition flex items-center gap-1.5 disabled:opacity-50">
+                        <i class="fa-solid fa-arrows-rotate" :class="{'fa-spin': isSyncing}"></i> 從雲端重新同步
+                    </button>
+                    <button @click="openConfigModal" class="text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-lg border border-slate-700 transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-gear"></i> 雲端設定
+                    </button>
+                    <button @click="copyForGoogleSheets" class="text-xs px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg transition flex items-center gap-1.5 shadow-sm">
+                        <i class="fa-solid fa-file-excel"></i> 複製 TSV
+                    </button>
+                    <button @click="openAddPropertyModal" class="text-xs px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition shadow flex items-center gap-1.5">
+                        <i class="fa-solid fa-plus"></i> 新增樓盤紀錄
+                    </button>
+                </div>
+            </div>
+
+            <!-- Property Search & Filter Bar -->
+            <div class="p-4 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row justify-between items-center gap-3">
+                <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                    <div class="relative flex-1 sm:w-64">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                        <input type="text" v-model="wishlistFilter.search" placeholder="搜尋地址/屋苑/來源/日期..." class="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+                    <select v-model="wishlistFilter.type" class="py-1.5 px-3 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none font-medium">
+                        <option value="ALL">全部類別 (1手/2手)</option>
+                        <option value="1手">1手新盤</option>
+                        <option value="2手">2手舊樓</option>
+                    </select>
+                    <select v-model="wishlistFilter.priceStatus" class="py-1.5 px-3 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none font-medium">
+                        <option value="ALL">全部價格狀態</option>
+                        <option value="TRANS">僅成交價</option>
+                        <option value="ASK">僅叫價/開價</option>
+                    </select>
+                </div>
+
+                <div class="text-xs text-slate-500 flex items-center gap-3">
+                    <span class="bg-indigo-50 text-indigo-700 px-2 py-1 rounded font-medium border border-indigo-100">
+                        <i class="fa-solid fa-hand-pointer mr-1"></i>按住欄位標題可拖拽前後移動
+                    </span>
+                    <span>顯示 <strong class="text-slate-800">{{ filteredWishlist.length }}</strong> 個紀錄</span>
+                    <span v-if="filteredWishlist.length > 0">
+                        平均呎價: <strong class="text-teal-700">HK$ {{ formatNum(overallAvgSqftPrice) }}/呎</strong>
+                    </span>
+                </div>
+            </div>
+
+            <!-- Wishlist Property Table -->
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs sm:text-sm border-collapse">
+                    <thead>
+                        <tr class="bg-slate-100 text-slate-600 border-b border-slate-200 uppercase font-semibold text-[11px] tracking-wider select-none">
+                            <th v-for="(col, index) in columns" 
+                                :key="col.key"
+                                draggable="true"
+                                @dragstart="handleDragStart($event, index)"
+                                @dragover.prevent="handleDragOver($event, index)"
+                                @drop="handleDrop($event, index)"
+                                @dragend="handleDragEnd"
+                                :class="[
+                                    col.align === 'right' ? 'text-right' : (col.align === 'center' ? 'text-center' : 'text-left'),
+                                    col.key === 'avgSqft' ? 'bg-amber-50/80 text-amber-900' : '',
+                                    draggedColIndex === index ? 'drag-ghost' : 'hover:bg-slate-200/70'
+                                ]"
+                                class="py-3 px-3 relative group transition cursor-grab active:cursor-grabbing border-r border-slate-200/60 last:border-r-0 whitespace-nowrap">
+                                
+                                <div class="flex items-center gap-1.5" :class="[col.align === 'right' ? 'justify-end' : (col.align === 'center' ? 'justify-center' : 'justify-start')]">
+                                    <i class="fa-solid fa-grip-vertical text-slate-300 group-hover:text-slate-500 text-xs"></i>
+                                    <span>{{ col.label }}</span>
+                                    
+                                    <div class="opacity-0 group-hover:opacity-100 transition flex items-center ml-1 space-x-0.5 bg-white/90 rounded border border-slate-200 px-1 py-0.2 shadow-sm">
+                                        <button v-if="index > 0" @click.stop="moveColumn(index, -1)" title="向左移" class="hover:text-indigo-600 px-0.5">
+                                            <i class="fa-solid fa-chevron-left text-[9px]"></i>
+                                        </button>
+                                        <button v-if="index < columns.length - 1" @click.stop="moveColumn(index, 1)" title="向右移" class="hover:text-indigo-600 px-0.5">
+                                            <i class="fa-solid fa-chevron-right text-[9px]"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        <tr v-if="filteredWishlist.length === 0">
+                            <td :colspan="columns.length" class="py-8 text-center text-slate-400">
+                                <i class="fa-solid fa-building-circle-xmark text-3xl mb-2 text-slate-300 block"></i>
+                                暫無樓盤紀錄。點擊右上角「新增樓盤紀錄」建立你的專屬 Wishlist！
+                            </td>
+                        </tr>
+                        <tr v-for="item in filteredWishlist" :key="item.id" class="hover:bg-slate-50/80 transition">
+                            <td v-for="col in columns" 
+                                :key="col.key" 
+                                class="py-3 px-3 border-r border-slate-100 last:border-r-0"
+                                :class="[
+                                    col.align === 'right' ? 'text-right' : (col.align === 'center' ? 'text-center' : 'text-left'),
+                                    col.key === 'avgSqft' ? 'bg-amber-50/30' : ''
+                                ]">
+                                
+                                <template v-if="col.key === 'source'">
+                                    <div class="flex flex-col items-start gap-1">
+                                        <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 border border-slate-200 font-semibold text-xs inline-flex items-center">
+                                            <i class="fa-solid fa-share-nodes text-[10px] text-slate-400 mr-1"></i>{{ item.source || '未指定' }}
+                                        </span>
+                                        <a v-if="item.url" :href="item.url" target="_blank" rel="noopener noreferrer" 
+                                           class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white border border-indigo-200 hover:border-indigo-600 font-medium transition shadow-sm"
+                                           title="點擊在新頁面開啟盤源網址">
+                                            <i class="fa-solid fa-arrow-up-right-from-square text-[9px]"></i> 前往網址
+                                        </a>
+                                        <span v-else class="text-[10px] text-slate-300 italic pl-0.5">無網址</span>
+                                    </div>
+                                </template>
+
+                                <template v-else-if="col.key === 'address'">
+                                    <span class="font-bold text-slate-900">{{ item.address }}</span>
+                                </template>
+
+                                <template v-else-if="col.key === 'propertyType'">
+                                    <span v-if="item.propertyType === '1手'" class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">1手新盤</span>
+                                    <span v-else class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200">2手舊樓</span>
+                                </template>
+
+                                <template v-else-if="col.key === 'price'">
+                                    <div class="font-extrabold text-slate-800">HK$ {{ formatNum(item.price) }}</div>
+                                    <div>
+                                        <span v-if="item.isTransacted" class="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 border border-emerald-200 rounded">
+                                            <i class="fa-solid fa-check text-[9px]"></i> 已成交價
+                                        </span>
+                                        <span v-else class="text-[10px] text-slate-400">叫價/開價</span>
+                                    </div>
+                                </template>
+
+                                <template v-else-if="col.key === 'sqft'">
+                                    <span class="font-medium text-slate-700">{{ item.sqft }} 呎</span>
+                                </template>
+
+                                <template v-else-if="col.key === 'avgSqft'">
+                                    <span class="font-bold text-amber-800" v-if="item.sqft > 0">
+                                        HK$ {{ formatNum(calculateAvgSqftPrice(item.price, item.sqft)) }}
+                                    </span>
+                                    <span v-else class="text-slate-300">-</span>
+                                </template>
+
+                                <template v-else-if="col.key === 'updatedAt'">
+                                    <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-mono border border-slate-200 inline-flex items-center gap-1 font-semibold">
+                                        <i class="fa-regular fa-calendar-check text-[11px] text-teal-600"></i>
+                                        {{ formatDate(item.updatedAt) }}
+                                    </span>
+                                </template>
+
+                                <template v-else-if="col.key === 'notes'">
+                                    <span class="text-slate-500 text-xs max-w-[150px] inline-block truncate" :title="item.notes">{{ item.notes || '-' }}</span>
+                                </template>
+
+                                <template v-else-if="col.key === 'actions'">
+                                    <div class="flex items-center justify-center space-x-1">
+                                        <button @click="loadPropertyToCalculator(item)" class="px-2 py-1 bg-teal-600 hover:bg-teal-500 text-white font-medium rounded text-xs transition shadow-sm flex items-center gap-1" title="帶入計算器">
+                                            <i class="fa-solid fa-calculator"></i> 帶入
+                                        </button>
+                                        <button @click="editProperty(item)" class="p-1.5 text-slate-500 hover:text-indigo-600 transition" title="編輯">
+                                            <i class="fa-solid fa-pen-to-square"></i>
+                                        </button>
+                                        <button @click="confirmDeleteProperty(item)" class="p-1.5 text-slate-400 hover:text-rose-600 transition" title="刪除">
+                                            <i class="fa-solid fa-trash-can"></i>
+                                        </button>
+                                    </div>
+                                </template>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="p-3 bg-slate-50 text-[11px] text-slate-500 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-2">
+                <span><i class="fa-solid fa-shield-halved text-emerald-600 mr-1"></i>Google Sheet 雲端同步保護：在網頁刪除紀錄時，Google Sheet 會安全保留紀錄（狀態設為 DELETED）。</span>
+                <span class="text-indigo-600 font-medium">多手機交叉訪問驗證就緒</span>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- SECTION 2: MORTGAGE & COST COMPARISON      -->
+        <!-- ========================================== -->
+        
+        <!-- Quick Preset Buttons -->
+        <section class="mb-6 bg-white p-4 rounded-2xl shadow-sm border border-slate-200/80">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-wand-magic-sparkles text-amber-500"></i>
+                    <span class="text-sm font-semibold text-slate-700">快速預設樓價情境：</span>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button @click="applyPreset(4000000)" class="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition">
+                        400萬 (首置細單位)
+                    </button>
+                    <button @click="applyPreset(6000000)" class="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition">
+                        600萬 (上車盤熱門)
+                    </button>
+                    <button @click="applyPreset(8000000)" class="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition">
+                        800萬 (中型兩房)
+                    </button>
+                    <button @click="applyPreset(12000000)" class="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition">
+                        1200萬 (換樓三房)
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Highlights & Comparison Summary Banner -->
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <!-- First-Hand Total Card -->
+            <div class="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-2xl p-5 text-white shadow-lg relative overflow-hidden">
+                <div class="absolute -right-4 -bottom-4 opacity-10 text-8xl">
+                    <i class="fa-solid fa-building-circle-check"></i>
+                </div>
+                <div class="flex justify-between items-start mb-2">
+                    <span class="text-xs font-bold tracking-wider uppercase bg-emerald-800/60 px-2.5 py-1 rounded-full text-emerald-200 border border-emerald-500/30">
+                        <i class="fa-solid fa-key mr-1"></i>一手樓 (新盤)
+                    </span>
+                    <span class="text-xs text-emerald-200">房價: HK$ {{ formatNum(firstHand.price) }}</span>
+                </div>
+                <div class="text-xs text-emerald-100 mt-1">一手樓淨啟動現金 (首期 + 雜費實付 - 回贈)</div>
+                <div class="text-2xl sm:text-3xl font-extrabold tracking-tight my-1">
+                    HK$ {{ formatNum(firstHandNetTotal) }}
+                </div>
+                <div class="mt-2 pt-2 border-t border-emerald-500/40 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                        <span class="text-emerald-200 block text-[11px]">每月供款 ({{ firstHand.tenure }}年):</span>
+                        <span class="font-bold text-amber-300 text-sm">HK$ {{ formatNum(firstHandMortgage.monthly) }}</span>
+                    </div>
+                    <div>
+                        <span class="text-emerald-200 block text-[11px]">最低月入要求:</span>
+                        <span class="font-semibold text-white">HK$ {{ formatNum(firstHandMortgage.minIncome) }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Second-Hand Total Card -->
+            <div class="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-5 text-white shadow-lg relative overflow-hidden">
+                <div class="absolute -right-4 -bottom-4 opacity-10 text-8xl">
+                    <i class="fa-solid fa-house-chimney"></i>
+                </div>
+                <div class="flex justify-between items-start mb-2">
+                    <span class="text-xs font-bold tracking-wider uppercase bg-blue-800/60 px-2.5 py-1 rounded-full text-blue-200 border border-blue-500/30">
+                        <i class="fa-solid fa-handshake mr-1"></i>二手樓 (舊樓)
+                    </span>
+                    <span class="text-xs text-blue-200">房價: HK$ {{ formatNum(secondHand.price) }}</span>
+                </div>
+                <div class="text-xs text-blue-100 mt-1">二手樓淨啟動現金 (首期 + 雜費 + 裝修)</div>
+                <div class="text-2xl sm:text-3xl font-extrabold tracking-tight my-1">
+                    HK$ {{ formatNum(secondHandNetTotal) }}
+                </div>
+                <div class="mt-2 pt-2 border-t border-blue-500/40 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                        <span class="text-blue-200 block text-[11px]">每月供款 ({{ secondHand.tenure }}年):</span>
+                        <span class="font-bold text-amber-300 text-sm">HK$ {{ formatNum(secondHandMortgage.monthly) }}</span>
+                    </div>
+                    <div>
+                        <span class="text-blue-200 block text-[11px]">最低月入要求:</span>
+                        <span class="font-semibold text-white">HK$ {{ formatNum(secondHandMortgage.minIncome) }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Comparison / Saving Indicator Card -->
+            <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-md flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <div class="text-xs font-bold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
+                            <i class="fa-solid fa-calculator text-slate-500"></i> 開支對比結果
+                        </div>
+                        <button @click="openAmortizationModal" class="text-xs bg-teal-600 hover:bg-teal-500 text-white font-semibold px-2.5 py-1 rounded-lg shadow-sm transition flex items-center gap-1 cursor-pointer">
+                            <i class="fa-solid fa-chart-line"></i>查看還款表
+                        </button>
+                    </div>
+                    <template v-if="costDifference > 0">
+                        <div class="text-emerald-600 font-bold text-base flex items-center gap-1 mt-1">
+                            <i class="fa-solid fa-circle-arrow-down text-emerald-500"></i> 一手樓總啟動現金較少！
+                        </div>
+                        <div class="text-2xl font-black text-slate-800 my-0.5">
+                            省下 HK$ {{ formatNum(costDifference) }}
+                        </div>
+                        <p class="text-xs text-slate-500 leading-relaxed">
+                            因發展商補貼印花稅、律師費及贈送裝修，前置現金少 <span class="font-bold text-emerald-600">{{ costDifferencePercent }}%</span>。
+                        </p>
+                    </template>
+                    <template v-else-if="costDifference < 0">
+                        <div class="text-blue-600 font-bold text-base flex items-center gap-1 mt-1">
+                            <i class="fa-solid fa-circle-arrow-down text-blue-500"></i> 二手樓總現金需要較少！
+                        </div>
+                        <div class="text-2xl font-black text-slate-800 my-0.5">
+                            少 HK$ {{ formatNum(Math.abs(costDifference)) }}
+                        </div>
+                        <p class="text-xs text-slate-500 leading-relaxed">
+                            二手樓的前置淨現金少 <span class="font-bold text-blue-600">{{ costDifferencePercent }}%</span>。
+                        </p>
+                    </template>
+                    <template v-else>
+                        <div class="text-slate-600 font-bold text-base my-1">兩者首期總開支相同</div>
+                    </template>
+                </div>
+                
+                <div class="mt-3 pt-2.5 border-t border-slate-100 text-xs flex justify-between items-center">
+                    <span class="text-slate-500">月供差異 (一手 vs 二手):</span>
+                    <span class="font-bold text-slate-700">
+                        {{ monthlyDiff > 0 ? '一手多 HK$ ' + formatNum(monthlyDiff) : (monthlyDiff < 0 ? '二手多 HK$ ' + formatNum(Math.abs(monthlyDiff)) : '供款相同') }}
+                    </span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Comparison Layout (Side-by-Side) -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+            
+            <!-- COLUMN 1: FIRST-HAND (一手樓) -->
+            <div class="bg-white rounded-2xl shadow-sm border border-emerald-100/80 overflow-hidden">
+                <div class="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-4 text-white flex justify-between items-center">
+                    <div class="flex items-center space-x-2">
+                        <i class="fa-solid fa-building-user text-xl"></i>
+                        <h2 class="text-lg font-bold">一手樓 (發展商新盤)</h2>
+                    </div>
+                    <span class="text-xs bg-white/20 px-2.5 py-1 rounded-md backdrop-blur-sm">發展商資助邏輯正確修正</span>
+                </div>
+
+                <div class="p-6 space-y-6">
+                    <div class="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100 space-y-4">
+                        <h3 class="text-sm font-bold text-emerald-900 flex items-center gap-2">
+                            <i class="fa-solid fa-sliders text-emerald-600"></i> 物業與按揭設定
+                        </h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">樓價 (HKD)</label>
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 text-sm">$</span>
+                                    <input type="number" step="50000" v-model.number="firstHand.price" class="w-full pl-7 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">按揭成數 (LTV)</label>
+                                <div class="flex items-center space-x-2">
+                                    <input type="range" min="50" max="90" step="5" v-model.number="firstHand.ltv" class="w-full accent-emerald-600">
+                                    <span class="text-sm font-bold text-emerald-700 min-w-[3rem] text-right">{{ firstHand.ltv }}%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-emerald-200/50">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">按揭年期 (Years)</label>
+                                <select v-model.number="firstHand.tenure" class="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                    <option :value="10">10 年</option>
+                                    <option :value="15">15 年</option>
+                                    <option :value="20">20 年</option>
+                                    <option :value="25">25 年</option>
+                                    <option :value="30">30 年 (標準熱門)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">按揭年利率 (%)</label>
+                                <div class="relative">
+                                    <input type="number" step="0.125" min="1" max="10" v-model.number="firstHand.interestRate" class="w-full pr-8 pl-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                    <span class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 text-xs font-bold">%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="firstHand.ltv > 70" class="bg-white/80 p-3 rounded-lg border border-emerald-200 space-y-2 text-xs">
+                            <div class="flex items-center justify-between">
+                                <span class="font-bold text-emerald-900 flex items-center gap-1">
+                                    <i class="fa-solid fa-shield-halved text-emerald-600"></i> 按揭保險計劃 (HKMC MIP)
+                                </span>
+                                <span class="text-emerald-700 font-semibold">保費約 {{ (firstHandMipRate * 100).toFixed(2) }}%</span>
+                            </div>
+                            <div class="flex items-center justify-between pt-1">
+                                <label class="flex items-center space-x-2 cursor-pointer">
+                                    <input type="checkbox" v-model="firstHand.addMipToLoan" class="rounded text-emerald-600 focus:ring-emerald-500">
+                                    <span class="text-slate-700">按保費用加入按揭金額加借 (月供微增)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="bg-emerald-100/60 p-3 rounded-lg flex justify-between items-center text-xs text-emerald-900 font-medium">
+                            <div>獨立基本首期: <span class="font-bold">HK$ {{ formatNum(firstHandDownPayment) }}</span></div>
+                            <div>實際貸款額: <span class="font-bold">HK$ {{ formatNum(firstHandActualLoan) }}</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Expense Items List -->
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                            <h3 class="text-sm font-bold text-slate-700">細項開支清單</h3>
+                            <span class="text-xs text-slate-400">發展商負責 = 不會加在淨啟動現金之內，但不等於扣減首期</span>
+                        </div>
+
+                        <div class="space-y-3">
+                            <!-- 1. Down Payment -->
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between gap-3">
+                                <div class="flex-1">
+                                    <div class="text-sm font-semibold text-slate-800">1. 首期款項 (Down Payment)</div>
+                                    <div class="text-xs text-slate-400">根據 {{ firstHand.ltv }}% 按揭計算（買家必須全數支付，不受發展商補貼影響）</div>
+                                </div>
+                                <div class="w-36 text-right font-bold text-slate-800 text-sm">
+                                    $ {{ formatNum(firstHandDownPayment) }}
+                                </div>
+                            </div>
+
+                            <!-- 2. Stamp Duty -->
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="flex-1">
+                                        <div class="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
+                                            2. 首置從價印花稅 (AVD)
+                                            <button @click="firstHand.autoStampDuty = !firstHand.autoStampDuty" class="text-[10px] text-teal-600 underline">
+                                                {{ firstHand.autoStampDuty ? '改為手動' : '自動計算' }}
+                                            </button>
+                                        </div>
+                                        <div class="text-xs text-slate-400">從價印花稅標準第2標準稅率</div>
+                                    </div>
+                                    <div class="w-36">
+                                        <input v-if="!firstHand.autoStampDuty" type="number" v-model.number="firstHand.stampDutyOverride" class="w-full text-right p-1.5 text-sm font-semibold border rounded border-slate-300">
+                                        <div v-else class="text-right font-bold text-slate-800 text-sm">
+                                            $ {{ formatNum(calculatedStampDuty(firstHand.price)) }}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-end space-x-2 pt-1 border-t border-slate-200/60">
+                                    <label class="inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" v-model="firstHand.isStampDutyPaidByDev" class="sr-only peer">
+                                        <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600 relative"></div>
+                                        <span class="ml-2 text-xs font-semibold text-emerald-700">由發展商負責 (不計入淨啟動現金)</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- 3. Legal Fee -->
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="flex-1">
+                                        <div class="text-sm font-semibold text-slate-800">3. 買方律師費</div>
+                                        <div class="text-xs text-slate-400">新盤買賣合約及按揭契約</div>
+                                    </div>
+                                    <div class="w-36">
+                                        <input type="number" v-model.number="firstHand.legalFee" class="w-full text-right p-1.5 text-sm font-semibold border rounded border-slate-300">
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-end space-x-2 pt-1 border-t border-slate-200/60">
+                                    <label class="inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" v-model="firstHand.isLegalFeePaidByDev" class="sr-only peer">
+                                        <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600 relative"></div>
+                                        <span class="ml-2 text-xs font-semibold text-emerald-700">由發展商負責 (不計入淨啟動現金)</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- 4. Agency Fee -->
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="flex-1">
+                                        <div class="text-sm font-semibold text-slate-800">4. 買家地產代理佣金</div>
+                                        <div class="text-xs text-slate-400">新盤買家通常免佣或由發展商支付</div>
+                                    </div>
+                                    <div class="w-36">
+                                        <input type="number" v-model.number="firstHand.agencyFee" class="w-full text-right p-1.5 text-sm font-semibold border rounded border-slate-300">
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-end space-x-2 pt-1 border-t border-slate-200/60">
+                                    <label class="inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" v-model="firstHand.isAgencyFeePaidByDev" class="sr-only peer">
+                                        <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600 relative"></div>
+                                        <span class="ml-2 text-xs font-semibold text-emerald-700">由發展商負責 (不計入淨啟動現金)</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- 5. Renovation -->
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="flex-1">
+                                        <div class="text-sm font-semibold text-slate-800">5. 裝修、添置傢俬及電器</div>
+                                        <div class="text-xs text-slate-400">新盤多附送精裝修及家電</div>
+                                    </div>
+                                    <div class="w-36">
+                                        <input type="number" v-model.number="firstHand.renovation" class="w-full text-right p-1.5 text-sm font-semibold border rounded border-slate-300">
+                                    </div>
+                                </div>
+                                <div class="flex items-center justify-end space-x-2 pt-1 border-t border-slate-200/60">
+                                    <label class="inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" v-model="firstHand.isRenovationPaidByDev" class="sr-only peer">
+                                        <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600 relative"></div>
+                                        <span class="ml-2 text-xs font-semibold text-emerald-700">由發展商負責 (不計入淨啟動現金)</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-for="(item, index) in firstHand.customItems" :key="'fh-custom-'+index" class="p-3 bg-emerald-50/40 rounded-xl border border-emerald-100 space-y-2">
+                            <div class="flex items-center justify-between gap-2">
+                                <input type="text" v-model="item.name" placeholder="項目名稱 (例如: 驗樓費)" class="flex-1 bg-transparent border-b border-slate-300 text-sm font-semibold focus:outline-none focus:border-emerald-500 py-0.5">
+                                <div class="w-32 flex items-center gap-1">
+                                    <span class="text-xs text-slate-400">$</span>
+                                    <input type="number" v-model.number="item.amount" class="w-full text-right p-1 text-sm font-semibold border rounded border-slate-300">
+                                </div>
+                                <button @click="removeCustomItem('firstHand', index)" class="text-rose-500 hover:text-rose-700 px-1.5">
+                                    <i class="fa-solid fa-trash-can text-xs"></i>
+                                </button>
+                            </div>
+                            <div class="flex items-center justify-end pt-1">
+                                <label class="inline-flex items-center cursor-pointer text-xs">
+                                    <input type="checkbox" v-model="item.isDevCovered" class="rounded text-emerald-600 mr-1.5">
+                                    <span class="text-emerald-800 font-medium">由發展商負責 (不計入淨啟動現金)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <button @click="addCustomItem('firstHand')" class="w-full py-2 border-2 border-dashed border-emerald-300 hover:border-emerald-500 text-emerald-700 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1">
+                            <i class="fa-solid fa-plus-circle"></i> 新增自訂開支項目 (一手樓)
+                        </button>
+                    </div>
+
+                    <!-- Rebates & Cashbacks -->
+                    <div class="bg-amber-50/60 p-4 rounded-xl border border-amber-200/70 space-y-3">
+                        <h3 class="text-sm font-bold text-amber-900 flex items-center gap-1.5">
+                            <i class="fa-solid fa-gift text-amber-600"></i> 現金回贈與折扣 (扣減現金支出)
+                        </h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 mb-1">發展商現金回贈/折扣</label>
+                                <input type="number" v-model.number="firstHand.devCashRebate" class="w-full p-1.5 text-sm font-semibold border rounded-lg border-slate-300">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-600 mb-1">
+                                    銀行按揭回贈 ({{ firstHand.bankRebatePercent }}%)
+                                </label>
+                                <div class="text-sm font-bold text-slate-800 py-1 text-right">
+                                    HK$ {{ formatNum(firstHandBankRebateAmount) }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-emerald-900 text-white p-4 rounded-xl shadow-inner space-y-2">
+                        <div class="flex justify-between text-xs text-emerald-200">
+                            <span>原始總開支 (首期 + 全部雜費):</span>
+                            <span>HK$ {{ formatNum(firstHandRawTotal) }}</span>
+                        </div>
+                        <div class="flex justify-between text-xs text-emerald-300">
+                            <span>發展商負責/代繳 (不計入淨啟動現金):</span>
+                            <span>- HK$ {{ formatNum(firstHandDevCoveredTotal) }}</span>
+                        </div>
+                        <div class="flex justify-between text-xs text-amber-300">
+                            <span>現金回贈總額 (發展商+銀行):</span>
+                            <span>- HK$ {{ formatNum(firstHandTotalDiscounts) }}</span>
+                        </div>
+                        <div class="border-t border-emerald-700 pt-2 flex justify-between items-center font-bold">
+                            <span class="text-sm">一手樓淨啟動現金:</span>
+                            <span class="text-xl text-emerald-300">HK$ {{ formatNum(firstHandNetTotal) }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- COLUMN 2: SECOND-HAND (二手樓) -->
+            <div class="bg-white rounded-2xl shadow-sm border border-blue-100/80 overflow-hidden">
+                <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 text-white flex justify-between items-center">
+                    <div class="flex items-center space-x-2">
+                        <i class="fa-solid fa-house-user text-xl"></i>
+                        <h2 class="text-lg font-bold">二手樓 (二手市場)</h2>
+                    </div>
+                    <span class="text-xs bg-white/20 px-2.5 py-1 rounded-md backdrop-blur-sm">買家需自付全部雜費</span>
+                </div>
+
+                <div class="p-6 space-y-6">
+                    <div class="bg-blue-50/50 p-4 rounded-xl border border-blue-100 space-y-4">
+                        <h3 class="text-sm font-bold text-blue-900 flex items-center gap-2">
+                            <i class="fa-solid fa-sliders text-blue-600"></i> 物業與按揭設定
+                        </h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">樓價 (HKD)</label>
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 text-sm">$</span>
+                                    <input type="number" step="50000" v-model.number="secondHand.price" class="w-full pl-7 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">按揭成數 (LTV)</label>
+                                <div class="flex items-center space-x-2">
+                                    <input type="range" min="50" max="90" step="5" v-model.number="secondHand.ltv" class="w-full accent-blue-600">
+                                    <span class="text-sm font-bold text-blue-700 min-w-[3rem] text-right">{{ secondHand.ltv }}%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-blue-200/50">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">按揭年期 (Years)</label>
+                                <select v-model.number="secondHand.tenure" class="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option :value="10">10 年</option>
+                                    <option :value="15">15 年</option>
+                                    <option :value="20">20 年</option>
+                                    <option :value="25">25 年</option>
+                                    <option :value="30">30 年 (標準熱門)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">按揭年利率 (%)</label>
+                                <div class="relative">
+                                    <input type="number" step="0.125" min="1" max="10" v-model.number="secondHand.interestRate" class="w-full pr-8 pl-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <span class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 text-xs font-bold">%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="secondHand.ltv > 70" class="bg-white/80 p-3 rounded-lg border border-blue-200 space-y-2 text-xs">
+                            <div class="flex items-center justify-between">
+                                <span class="font-bold text-blue-900 flex items-center gap-1">
+                                    <i class="fa-solid fa-shield-halved text-blue-600"></i> 按揭保險計劃 (HKMC MIP)
+                                </span>
+                                <span class="text-blue-700 font-semibold">保費約 {{ (secondHandMipRate * 100).toFixed(2) }}%</span>
+                            </div>
+                            <div class="flex items-center justify-between pt-1">
+                                <label class="flex items-center space-x-2 cursor-pointer">
+                                    <input type="checkbox" v-model="secondHand.addMipToLoan" class="rounded text-blue-600 focus:ring-blue-500">
+                                    <span class="text-slate-700">按保費用加入按揭金額加借 (月供微增)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="bg-blue-100/60 p-3 rounded-lg flex justify-between items-center text-xs text-blue-900 font-medium">
+                            <div>基本首期: <span class="font-bold">HK$ {{ formatNum(secondHandDownPayment) }}</span></div>
+                            <div>實際貸款額: <span class="font-bold">HK$ {{ formatNum(secondHandActualLoan) }}</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Expense Items List -->
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                            <h3 class="text-sm font-bold text-slate-700">細項開支清單</h3>
+                            <span class="text-xs text-slate-400">常規二手置業開支</span>
+                        </div>
+
+                        <div class="space-y-3">
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between gap-3">
+                                <div class="flex-1">
+                                    <div class="text-sm font-semibold text-slate-800">1. 首期款項 (Down Payment)</div>
+                                    <div class="text-xs text-slate-400">根據 {{ secondHand.ltv }}% 按揭計算</div>
+                                </div>
+                                <div class="w-36 text-right font-bold text-slate-800 text-sm">
+                                    $ {{ formatNum(secondHandDownPayment) }}
+                                </div>
+                            </div>
+
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="flex-1">
+                                        <div class="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
+                                            2. 首置從價印花稅 (AVD)
+                                            <button @click="secondHand.autoStampDuty = !secondHand.autoStampDuty" class="text-[10px] text-blue-600 underline">
+                                                {{ secondHand.autoStampDuty ? '改為手動' : '自動計算' }}
+                                            </button>
+                                        </div>
+                                        <div class="text-xs text-slate-400">從價印花稅標準第2標準稅率</div>
+                                    </div>
+                                    <div class="w-36">
+                                        <input v-if="!secondHand.autoStampDuty" type="number" v-model.number="secondHand.stampDutyOverride" class="w-full text-right p-1.5 text-sm font-semibold border rounded border-slate-300">
+                                        <div v-else class="text-right font-bold text-slate-800 text-sm">
+                                            $ {{ formatNum(calculatedStampDuty(secondHand.price)) }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between gap-3">
+                                <div class="flex-1">
+                                    <div class="text-sm font-semibold text-slate-800">3. 買方律師費</div>
+                                    <div class="text-xs text-slate-400">二手樓樓契查冊與按揭契</div>
+                                </div>
+                                <div class="w-36">
+                                    <input type="number" v-model.number="secondHand.legalFee" class="w-full text-right p-1.5 text-sm font-semibold border rounded border-slate-300">
+                                </div>
+                            </div>
+
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="flex-1">
+                                        <div class="text-sm font-semibold text-slate-800">4. 地產代理佣金 (通常1%)</div>
+                                        <div class="text-xs text-slate-400">標準為樓價 1%</div>
+                                    </div>
+                                    <div class="w-36">
+                                        <input type="number" v-model.number="secondHand.agencyFee" class="w-full text-right p-1.5 text-sm font-semibold border rounded border-slate-300">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="flex-1">
+                                        <div class="text-sm font-semibold text-slate-800">5. 全屋裝修、拆除及翻新</div>
+                                        <div class="text-xs text-slate-400">二手舊樓通常需要重新裝修</div>
+                                    </div>
+                                    <div class="w-36">
+                                        <input type="number" v-model.number="secondHand.renovation" class="w-full text-right p-1.5 text-sm font-semibold border rounded border-slate-300">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-for="(item, index) in secondHand.customItems" :key="'sh-custom-'+index" class="p-3 bg-blue-50/40 rounded-xl border border-blue-100 space-y-2">
+                            <div class="flex items-center justify-between gap-2">
+                                <input type="text" v-model="item.name" placeholder="項目名稱 (例如: 搬屋費)" class="flex-1 bg-transparent border-b border-slate-300 text-sm font-semibold focus:outline-none focus:border-blue-500 py-0.5">
+                                <div class="w-32 flex items-center gap-1">
+                                    <span class="text-xs text-slate-400">$</span>
+                                    <input type="number" v-model.number="item.amount" class="w-full text-right p-1 text-sm font-semibold border rounded border-slate-300">
+                                </div>
+                                <button @click="removeCustomItem('secondHand', index)" class="text-rose-500 hover:text-rose-700 px-1.5">
+                                    <i class="fa-solid fa-trash-can text-xs"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <button @click="addCustomItem('secondHand')" class="w-full py-2 border-2 border-dashed border-blue-300 hover:border-blue-500 text-blue-700 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1">
+                            <i class="fa-solid fa-plus-circle"></i> 新增自訂開支項目 (二手樓)
+                        </button>
+                    </div>
+
+                    <div class="bg-amber-50/60 p-4 rounded-xl border border-amber-200/70 space-y-3">
+                        <h3 class="text-sm font-bold text-amber-900 flex items-center gap-1.5">
+                            <i class="fa-solid fa-gift text-amber-600"></i> 現金回贈 (扣減現金支出)
+                        </h3>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">
+                                銀行按揭回贈 ({{ secondHand.bankRebatePercent }}%)
+                            </label>
+                            <div class="text-sm font-bold text-slate-800 py-1 text-right">
+                                HK$ {{ formatNum(secondHandBankRebate) }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-blue-900 text-white p-4 rounded-xl shadow-inner space-y-2">
+                        <div class="flex justify-between text-xs text-blue-200">
+                            <span>二手樓總開支 (未扣回贈):</span>
+                            <span>HK$ {{ formatNum(secondHandRawTotal) }}</span>
+                        </div>
+                        <div class="flex justify-between text-xs text-amber-300">
+                            <span>銀行現金回贈:</span>
+                            <span>- HK$ {{ formatNum(secondHandBankRebate) }}</span>
+                        </div>
+                        <div class="border-t border-blue-700 pt-2 flex justify-between items-center font-bold">
+                            <span class="text-sm">二手樓淨啟動現金:</span>
+                            <span class="text-xl text-blue-300">HK$ {{ formatNum(secondHandNetTotal) }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- MODAL 1: ADD / EDIT PROPERTY MODAL -->
+        <div v-if="showPropertyModal" class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
+                <div class="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+                    <h3 class="text-base font-bold flex items-center gap-2">
+                        <i class="fa-solid fa-house-chimney-medical text-amber-400"></i>
+                        {{ isEditingProperty ? '編輯樓盤紀錄' : '新增真實樓盤紀錄 (Wishlist)' }}
+                    </h3>
+                    <button @click="showPropertyModal = false" class="text-slate-400 hover:text-white text-lg cursor-pointer">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <form @submit.prevent="saveProperty" class="p-6 space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">1. 地產來源 (Source)</label>
+                        <div class="flex gap-2">
+                            <select v-model="propertyForm.sourceSelect" class="p-2 border rounded-lg text-xs bg-slate-50 border-slate-300 font-medium">
+                                <option value="中原">中原理線</option>
+                                <option value="美聯">美聯物業</option>
+                                <option value="利嘉閣">利嘉閣</option>
+                                <option value="香港置業">香港置業</option>
+                                <option value="House730">House730</option>
+                                <option value="世紀21">世紀21</option>
+                                <option value="自訂/其他">自訂/其他</option>
+                            </select>
+                            <input v-if="propertyForm.sourceSelect === '自訂/其他'" type="text" v-model="propertyForm.sourceCustom" placeholder="輸入來源名稱 (如: 業主自售)" class="flex-1 p-2 border rounded-lg text-xs border-slate-300">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                            <span><i class="fa-solid fa-link text-indigo-500 mr-1"></i>2. 樓盤 / 盤源網址 (URL)</span>
+                            <span class="text-[10px] text-slate-400 font-normal">填寫後可在來源欄位點擊開啟</span>
+                        </label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 left-0 pl-2.5 flex items-center text-slate-400 text-xs">
+                                <i class="fa-solid fa-globe"></i>
+                            </span>
+                            <input type="url" v-model="propertyForm.url" placeholder="例如: https://hk.centanet.com/findproperty/detail/..." class="w-full pl-8 pr-3 py-2 border rounded-lg text-xs font-mono border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">3. 屋苑名稱 / 地址</label>
+                        <input type="text" required v-model="propertyForm.address" placeholder="例如: 啟德 Park Peninsula 2房 / 淘大花園 B座" class="w-full p-2 border rounded-lg text-xs font-semibold border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">4. 更新日期 (Updated Date)</label>
+                            <input type="date" required v-model="propertyForm.updatedAt" class="w-full p-2 border rounded-lg text-xs font-semibold border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">5. 物業類別</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <label class="flex items-center justify-center space-x-1 p-2 rounded-lg border cursor-pointer transition text-xs" :class="propertyForm.propertyType === '1手' ? 'bg-emerald-50 border-emerald-500 text-emerald-800 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'">
+                                    <input type="radio" v-model="propertyForm.propertyType" value="1手" class="sr-only">
+                                    <i class="fa-solid fa-key text-[10px]"></i>
+                                    <span>1手新盤</span>
+                                </label>
+                                <label class="flex items-center justify-center space-x-1 p-2 rounded-lg border cursor-pointer transition text-xs" :class="propertyForm.propertyType === '2手' ? 'bg-blue-50 border-blue-500 text-blue-800 font-bold' : 'bg-slate-50 border-slate-200 text-slate-600'">
+                                    <input type="radio" v-model="propertyForm.propertyType" value="2手" class="sr-only">
+                                    <i class="fa-solid fa-house text-[10px]"></i>
+                                    <span>2手舊樓</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">6. 樓價 / 成交價 (HKD)</label>
+                            <div class="relative">
+                                <span class="absolute inset-y-0 left-0 pl-2.5 flex items-center text-slate-400 text-xs">$</span>
+                                <input type="number" required step="10000" min="0" v-model.number="propertyForm.price" placeholder="例如: 6500000" class="w-full pl-6 pr-2 py-2 border rounded-lg text-xs font-bold border-slate-300">
+                            </div>
+                        </div>
+                        <div class="flex items-end pb-0.5">
+                            <label class="inline-flex items-center cursor-pointer space-x-2 bg-slate-100 p-2 rounded-lg border border-slate-200 w-full">
+                                <input type="checkbox" v-model="propertyForm.isTransacted" class="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4">
+                                <span class="text-xs font-bold text-slate-700">標記為已成交價</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-amber-50/60 p-3 rounded-xl border border-amber-200/80">
+                        <div>
+                            <label class="block text-xs font-bold text-amber-900 mb-1">7. 實用呎數 (Sq. Ft.)</label>
+                            <input type="number" required step="1" min="1" v-model.number="propertyForm.sqft" placeholder="例如: 450" class="w-full p-2 border rounded-lg text-xs font-bold border-slate-300">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-amber-900 mb-1">8. 平均呎價 (自動計算)</label>
+                            <div class="p-2 bg-white rounded-lg border border-amber-300 text-xs font-extrabold text-amber-800 text-right">
+                                <template v-if="propertyForm.sqft > 0 && propertyForm.price > 0">
+                                    HK$ {{ formatNum(calculateAvgSqftPrice(propertyForm.price, propertyForm.sqft)) }} / 呎
+                                </template>
+                                <template v-else>
+                                    待輸入呎數...
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">備註 / 狀態說明 (選填)</label>
+                        <input type="text" v-model="propertyForm.notes" placeholder="例如: 景觀好、有露台、附送地價等..." class="w-full p-2 border rounded-lg text-xs border-slate-300">
+                    </div>
+
+                    <div class="pt-2 flex justify-end space-x-2">
+                        <button type="button" @click="showPropertyModal = false" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer">
+                            取消
+                        </button>
+                        <button type="submit" :disabled="isSyncing" class="px-5 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg shadow transition flex items-center gap-1.5 cursor-pointer">
+                            <i v-if="isSyncing" class="fa-solid fa-spinner fa-spin"></i>
+                            <span>{{ isEditingProperty ? '儲存更新' : '新增至 Wishlist' }}</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- MODAL 2: CONFIRM DELETE MODAL -->
+        <div v-if="confirmDeleteModal.show" class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center space-y-4 border border-slate-200">
+                <div class="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto text-xl">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-base text-slate-900">確認從網頁移除此紀錄？</h3>
+                    <p class="text-xs text-slate-500 mt-1">「{{ confirmDeleteModal.itemAddress }}」將會在 HTML 頁面上隱藏，但 **Google Sheet 將會完整保留此歷史紀錄**（狀態標註為 DELETED）。</p>
+                </div>
+                <div class="flex justify-center space-x-2 pt-2">
+                    <button @click="confirmDeleteModal.show = false" class="px-4 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg cursor-pointer">
+                        取消
+                    </button>
+                    <button @click="executeDeleteProperty" :disabled="isSyncing" class="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white rounded-lg shadow flex items-center gap-1 cursor-pointer">
+                        <i v-if="isSyncing" class="fa-solid fa-spinner fa-spin"></i>
+                        <span>確認刪除 (保留於雲端)</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL 3: GOOGLE SHEET CONFIG MODAL -->
+        <div v-if="showConfigModal" class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
+                <div class="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+                    <h3 class="text-base font-bold flex items-center gap-2">
+                        <i class="fa-solid fa-database text-teal-400"></i> Google Sheet 跨手機雲端同步設定
+                    </h3>
+                    <button @click="showConfigModal = false" class="text-slate-400 hover:text-white text-lg cursor-pointer">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <div class="p-6 space-y-4">
+                    <p class="text-xs text-slate-600 leading-relaxed">
+                        要讓不同手機或電腦同時看到更新，請建立一個 Google Sheet，並透過「擴充功能 > Apps Script」部署為 **Web App**，然後將網址貼在下方：
+                    </p>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Google Apps Script Web App URL</label>
+                        <input type="url" v-model="inputGoogleSheetUrl" placeholder="https://script.google.com/macros/s/.../exec" class="w-full p-2.5 border rounded-lg text-xs font-mono border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    </div>
+
+                    <div class="bg-indigo-50 border border-indigo-100 p-3 rounded-xl text-xs text-indigo-900 space-y-2">
+                        <div class="font-bold flex items-center gap-1">
+                            <i class="fa-solid fa-circle-info"></i> Google Apps Script 簡易程式碼 (Copy & Paste):
+                        </div>
+                        <textarea readonly class="w-full h-28 text-[10px] font-mono bg-white p-2 border rounded border-indigo-200 text-slate-700 select-all" onclick="this.select()">
+const SHEET_NAME = "Wishlist";
+function doPost(e) {
+  var data = JSON.parse(e.postData.contents);
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME) || SpreadsheetApp.getActiveSpreadsheet().insertSheet(SHEET_NAME);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(["id", "source", "address", "propertyType", "price", "isTransacted", "sqft", "updatedAt", "notes", "url", "status"]);
+  }
+  var rows = sheet.getDataRange().getValues();
+  var updated = false;
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][0] == data.id) {
+      sheet.getRange(i+1, 1, 1, 11).setValues([[data.id, data.source, data.address, data.propertyType, data.price, data.isTransacted, data.sqft, data.updatedAt, data.notes, data.url, data.status || "ACTIVE"]]);
+      updated = true;
+      break;
+    }
+  }
+  if (!updated) {
+    sheet.appendRow([data.id, data.source, data.address, data.propertyType, data.price, data.isTransacted, data.sqft, data.updatedAt, data.notes, data.url, data.status || "ACTIVE"]);
+  }
+  return ContentService.createTextOutput(JSON.stringify({status: "success"})).setMimeType(ContentService.MimeType.JSON);
+}
+function doGet(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  var data = [];
+  if (sheet && sheet.getLastRow() > 1) {
+    var rows = sheet.getDataRange().getValues();
+    var headers = rows[0];
+    for (var i = 1; i < rows.length; i++) {
+      var item = {};
+      for (var j = 0; j < headers.length; j++) {
+        item[headers[j]] = rows[i][j];
+      }
+      if (item.status !== "DELETED") {
+        data.push(item);
+      }
+    }
+  }
+  return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
+}
+                        </textarea>
+                    </div>
+
+                    <div class="pt-2 flex justify-end space-x-2">
+                        <button type="button" @click="showConfigModal = false" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer">
+                            取消
+                        </button>
+                        <button type="button" @click="saveConfigModal" class="px-5 py-2 text-xs font-bold bg-teal-600 hover:bg-teal-500 text-white rounded-lg shadow transition cursor-pointer">
+                            儲存並連接雲端
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL 4: AMORTIZATION SCHEDULE MODAL -->
+        <div v-if="showAmortizationModal" class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-4xl w-full overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
+                <div class="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
+                    <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-teal-500/20 text-teal-300 rounded-lg border border-teal-500/30">
+                            <i class="fa-solid fa-chart-line text-lg"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-base font-bold">按揭還款日程表 (Amortization Schedule)</h3>
+                            <p class="text-xs text-slate-400">本金、利息與貸款餘額逐年/每月詳細拆解</p>
+                        </div>
+                    </div>
+                    <button @click="showAmortizationModal = false" class="text-slate-400 hover:text-white text-lg p-1 cursor-pointer">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <div class="p-6 overflow-y-auto space-y-6">
+                    <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+                        <div class="flex space-x-2">
+                            <button @click="selectedAmortizationTab = 'firstHand'" 
+                                    :class="selectedAmortizationTab === 'firstHand' ? 'bg-emerald-600 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+                                    class="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer">
+                                <i class="fa-solid fa-key"></i> 一手樓按揭還款表
+                            </button>
+                            <button @click="selectedAmortizationTab = 'secondHand'" 
+                                    :class="selectedAmortizationTab === 'secondHand' ? 'bg-blue-600 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+                                    class="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer">
+                                <i class="fa-solid fa-house"></i> 二手樓按揭還款表
+                            </button>
+                        </div>
+
+                        <div class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+                            <button @click="amortizationViewMode = 'yearly'" 
+                                    :class="amortizationViewMode === 'yearly' ? 'bg-white text-slate-900 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'"
+                                    class="px-3 py-1 rounded-lg text-xs transition cursor-pointer">
+                                年度總覽 (Yearly)
+                            </button>
+                            <button @click="amortizationViewMode = 'monthly'" 
+                                    :class="amortizationViewMode === 'monthly' ? 'bg-white text-slate-900 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'"
+                                    class="px-3 py-1 rounded-lg text-xs transition cursor-pointer">
+                                每月細目 (Monthly)
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                            <span class="text-[11px] font-medium text-slate-500 block mb-0.5">總按揭貸款額 (Principal)</span>
+                            <span class="text-base font-extrabold text-slate-800">HK$ {{ formatNum(activeAmortizationData.loanAmount) }}</span>
+                        </div>
+                        <div class="bg-amber-50/70 p-3.5 rounded-xl border border-amber-200/80">
+                            <span class="text-[11px] font-medium text-amber-800 block mb-0.5">每月固定供款</span>
+                            <span class="text-base font-extrabold text-amber-900">HK$ {{ formatNum(activeAmortizationData.monthlyPayment) }}</span>
+                        </div>
+                        <div class="bg-rose-50/70 p-3.5 rounded-xl border border-rose-200/80">
+                            <span class="text-[11px] font-medium text-rose-800 block mb-0.5">全期總利息支出</span>
+                            <span class="text-base font-extrabold text-rose-900">HK$ {{ formatNum(activeAmortizationData.totalInterest) }}</span>
+                        </div>
+                        <div class="bg-indigo-50/70 p-3.5 rounded-xl border border-indigo-200/80">
+                            <span class="text-[11px] font-medium text-indigo-800 block mb-0.5">本息總還款額</span>
+                            <span class="text-base font-extrabold text-indigo-900">HK$ {{ formatNum(activeAmortizationData.totalPayment) }}</span>
+                        </div>
+                    </div>
+
+                    <div class="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                        <div class="max-h-[380px] overflow-y-auto">
+                            <table class="w-full text-xs text-left border-collapse">
+                                <thead class="bg-slate-100 text-slate-700 sticky top-0 border-b border-slate-200 z-10 uppercase font-semibold">
+                                    <tr>
+                                        <th class="py-2.5 px-3">{{ amortizationViewMode === 'yearly' ? '年份 (Year)' : '期數 (Month)' }}</th>
+                                        <th class="py-2.5 px-3 text-right">當期供款總額</th>
+                                        <th class="py-2.5 px-3 text-right text-emerald-700">償還本金 (Principal)</th>
+                                        <th class="py-2.5 px-3 text-right text-rose-700">支付利息 (Interest)</th>
+                                        <th class="py-2.5 px-3 text-right">剩餘按揭餘額 (Balance)</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    <tr v-for="row in activeAmortizationSchedule" :key="row.period" class="hover:bg-slate-50 transition">
+                                        <td class="py-2 px-3 font-medium text-slate-700">{{ amortizationViewMode === 'yearly' ? '第 ' + row.period + ' 年' : '第 ' + row.period + ' 期' }}</td>
+                                        <td class="py-2 px-3 text-right font-semibold text-slate-800">HK$ {{ formatNum(row.payment) }}</td>
+                                        <td class="py-2 px-3 text-right font-bold text-emerald-600">HK$ {{ formatNum(row.principal) }}</td>
+                                        <td class="py-2 px-3 text-right font-bold text-rose-600">HK$ {{ formatNum(row.interest) }}</td>
+                                        <td class="py-2 px-3 text-right font-mono text-slate-600">HK$ {{ formatNum(row.balance) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-4 bg-slate-50 border-t border-slate-200 flex justify-between items-center shrink-0 text-xs">
+                    <span class="text-slate-500"><i class="fa-solid fa-circle-info text-teal-600 mr-1"></i>按揭年利率計算。</span>
+                    <button @click="showAmortizationModal = false" class="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg transition shadow-sm cursor-pointer">關閉</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL 5: RESET CONFIRM MODAL -->
+        <div v-if="showResetModal" class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center space-y-4 border border-slate-200">
+                <div class="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto text-xl">
+                    <i class="fa-solid fa-rotate-left"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-base text-slate-900">確定重置本地紀錄？</h3>
+                    <p class="text-xs text-slate-500 mt-1">此操作將清空本地暫存並恢復預設。</p>
+                </div>
+                <div class="flex justify-center space-x-2 pt-2">
+                    <button @click="showResetModal = false" class="px-4 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg cursor-pointer">取消</button>
+                    <button @click="executeResetToDefault" class="px-4 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg shadow flex items-center gap-1 cursor-pointer">確認重置</button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+</div>
+
+<script>
+const { createApp } = Vue;
+
+const DEFAULT_COLUMNS = [
+    { key: 'source', label: '來源 (Source)', align: 'left' },
+    { key: 'address', label: '屋苑地址 / 樓盤名稱', align: 'left' },
+    { key: 'propertyType', label: '類別', align: 'left' },
+    { key: 'price', label: '樓價 / 成交價', align: 'right' },
+    { key: 'sqft', label: '實用呎數', align: 'right' },
+    { key: 'avgSqft', label: '平均呎價 (自動計算)', align: 'right' },
+    { key: 'updatedAt', label: '更新日期', align: 'center' },
+    { key: 'notes', label: '備註 / 狀態', align: 'center' },
+    { key: 'actions', label: '操作 (Actions)', align: 'center' }
+];
+
+const INITIAL_WISHLIST = [
+    { id: '1', source: '中原', address: '啟德 柏蔚森 2房高層', propertyType: '1手', price: 6800000, isTransacted: false, sqft: 460, updatedAt: '2026-09-20', notes: '送家電折扣，即將入伙', url: 'https://hk.centanet.com', status: 'ACTIVE' },
+    { id: '2', source: '美聯', address: '九龍灣 淘大花園 C座中層', propertyType: '2手', price: 4800000, isTransacted: true, sqft: 375, updatedAt: '2026-09-22', notes: '已成交近地鐵，連舊裝修', url: 'https://www.midland.com.hk', status: 'ACTIVE' },
+    { id: '3', source: 'House730', address: '黃埔花園 2期 3房', propertyType: '2手', price: 7800000, isTransacted: false, sqft: 550, updatedAt: '2026-09-25', notes: '叫價可議，傳統藍籌屋苑', url: 'https://www.house730.com', status: 'ACTIVE' }
+];
+
+createApp({
+    data() {
+        return {
+            toastMessage: '',
+            toastType: 'success',
+            showPropertyModal: false,
+            showConfigModal: false,
+            showAmortizationModal: false,
+            showResetModal: false,
+            selectedAmortizationTab: 'firstHand',
+            amortizationViewMode: 'yearly',
+            isEditingProperty: false,
+            editingPropertyId: null,
+            isSyncing: false,
+
+            googleSheetUrl: '',
+            inputGoogleSheetUrl: '',
+
+            confirmDeleteModal: {
+                show: false,
+                itemId: null,
+                itemAddress: ''
+            },
+
+            columns: JSON.parse(JSON.stringify(DEFAULT_COLUMNS)),
+            draggedColIndex: null,
+
+            wishlistFilter: {
+                search: '',
+                type: 'ALL',
+                priceStatus: 'ALL'
+            },
+
+            propertyForm: {
+                sourceSelect: '中原',
+                sourceCustom: '',
+                address: '',
+                propertyType: '1手',
+                price: 6500000,
+                isTransacted: false,
+                sqft: 450,
+                updatedAt: new Date().toISOString().slice(0, 10),
+                notes: '',
+                url: ''
+            },
+
+            wishlist: JSON.parse(JSON.stringify(INITIAL_WISHLIST)),
+
+            firstHand: {
+                price: 6500000,
+                ltv: 80,
+                tenure: 30,
+                interestRate: 3.875,
+                autoStampDuty: true,
+                stampDutyOverride: 195000,
+                legalFee: 12000,
+                agencyFee: 0,
+                renovation: 50000,
+                devCashRebate: 100000,
+                bankRebatePercent: 1.0,
+                addMipToLoan: true,
+                isStampDutyPaidByDev: true,
+                isLegalFeePaidByDev: true,
+                isAgencyFeePaidByDev: true,
+                isRenovationPaidByDev: true,
+                customItems: [{ name: '驗樓費', amount: 3500, isDevCovered: true }]
+            },
+
+            secondHand: {
+                price: 6500000,
+                ltv: 80,
+                tenure: 30,
+                interestRate: 3.875,
+                autoStampDuty: true,
+                stampDutyOverride: 195000,
+                legalFee: 10000,
+                agencyFee: 65000,
+                renovation: 300000,
+                bankRebatePercent: 1.0,
+                addMipToLoan: true,
+                customItems: [{ name: '搬屋及清潔費', amount: 8000 }]
+            }
+        }
+    },
+    computed: {
+        filteredWishlist() {
+            return this.wishlist.filter(item => {
+                const searchLower = this.wishlistFilter.search.toLowerCase();
+                const cleanDateStr = this.formatDate(item.updatedAt);
+                const matchSearch = !this.wishlistFilter.search || 
+                    (item.address && item.address.toLowerCase().includes(searchLower)) ||
+                    (item.source && item.source.toLowerCase().includes(searchLower)) ||
+                    (cleanDateStr && cleanDateStr.includes(searchLower));
+                
+                const matchType = this.wishlistFilter.type === 'ALL' || item.propertyType === this.wishlistFilter.type;
+
+                let matchPrice = true;
+                if (this.wishlistFilter.priceStatus === 'TRANS') matchPrice = item.isTransacted;
+                if (this.wishlistFilter.priceStatus === 'ASK') matchPrice = !item.isTransacted;
+
+                return matchSearch && matchType && matchPrice;
+            });
+        },
+        overallAvgSqftPrice() {
+            if (this.filteredWishlist.length === 0) return 0;
+            let totalPrice = 0;
+            let totalSqft = 0;
+            this.filteredWishlist.forEach(i => {
+                if (i.sqft > 0 && i.price > 0) {
+                    totalPrice += Number(i.price);
+                    totalSqft += Number(i.sqft);
+                }
+            });
+            return totalSqft > 0 ? Math.round(totalPrice / totalSqft) : 0;
+        },
+
+        // --- FIRST HAND MORTGAGE COMPUTED ---
+        firstHandMipRate() { return this.calculateMipRate(this.firstHand.ltv, this.firstHand.tenure); },
+        firstHandDownPayment() { return Math.round(this.firstHand.price * (1 - this.firstHand.ltv / 100)); },
+        firstHandBaseLoan() { return Math.round(this.firstHand.price * (this.firstHand.ltv / 100)); },
+        firstHandMipAmount() {
+            if (this.firstHand.ltv <= 70) return 0;
+            return Math.round(this.firstHandBaseLoan * this.firstHandMipRate);
+        },
+        firstHandActualLoan() {
+            if (this.firstHand.ltv > 70 && this.firstHand.addMipToLoan) {
+                return this.firstHandBaseLoan + this.firstHandMipAmount;
+            }
+            return this.firstHandBaseLoan;
+        },
+
+        // 發展商負責的費用：只會從「淨啟動現金」中剔除（唔會扣減首期）
+        firstHandDevCoveredTotal() {
+            let covered = 0;
+            if (this.firstHand.isStampDutyPaidByDev) covered += (this.firstHand.autoStampDuty ? this.calculatedStampDuty(this.firstHand.price) : (this.firstHand.stampDutyOverride || 0));
+            if (this.firstHand.isLegalFeePaidByDev) covered += (this.firstHand.legalFee || 0);
+            if (this.firstHand.isAgencyFeePaidByDev) covered += (this.firstHand.agencyFee || 0);
+            if (this.firstHand.isRenovationPaidByDev) covered += (this.firstHand.renovation || 0);
+            this.firstHand.customItems.forEach(i => { if (i.isDevCovered) covered += (i.amount || 0); });
+            return covered;
+        },
+
+        firstHandBankRebateAmount() { return Math.round(this.firstHandBaseLoan * (this.firstHand.bankRebatePercent / 100)); },
+        firstHandTotalDiscounts() { return (this.firstHand.devCashRebate || 0) + this.firstHandBankRebateAmount; },
+        
+        firstHandRawTotal() {
+            const stamp = this.firstHand.autoStampDuty ? this.calculatedStampDuty(this.firstHand.price) : (this.firstHand.stampDutyOverride || 0);
+            const customRaw = this.firstHand.customItems.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+            return this.firstHandDownPayment + stamp + (this.firstHand.legalFee || 0) + (this.firstHand.agencyFee || 0) + (this.firstHand.renovation || 0) + customRaw;
+        },
+
+        // 邏輯修正：淨啟動現金 = 首期 + 未由發展商負責的雜費 + 按保 (若未加契) - 現金回贈
+        firstHandNetTotal() {
+            const stamp = this.firstHand.autoStampDuty ? this.calculatedStampDuty(this.firstHand.price) : (this.firstHand.stampDutyOverride || 0);
+            
+            let stampOut = this.firstHand.isStampDutyPaidByDev ? 0 : stamp;
+            let legalOut = this.firstHand.isLegalFeePaidByDev ? 0 : (this.firstHand.legalFee || 0);
+            let agencyOut = this.firstHand.isAgencyFeePaidByDev ? 0 : (this.firstHand.agencyFee || 0);
+            let renoOut = this.firstHand.isRenovationPaidByDev ? 0 : (this.firstHand.renovation || 0);
+            
+            let customOut = 0;
+            this.firstHand.customItems.forEach(i => {
+                if (!i.isDevCovered) customOut += (i.amount || 0);
+            });
+
+            let total = this.firstHandDownPayment + stampOut + legalOut + agencyOut + renoOut + customOut;
+            if (this.firstHand.ltv > 70 && !this.firstHand.addMipToLoan) total += this.firstHandMipAmount;
+            total -= this.firstHandTotalDiscounts;
+            return Math.max(0, total);
+        },
+        firstHandMortgage() { return this.calculateMortgageDetails(this.firstHandActualLoan, this.firstHand.interestRate, this.firstHand.tenure); },
+
+        // --- SECOND HAND MORTGAGE COMPUTED ---
+        secondHandMipRate() { return this.calculateMipRate(this.secondHand.ltv, this.secondHand.tenure); },
+        secondHandDownPayment() { return Math.round(this.secondHand.price * (1 - this.secondHand.ltv / 100)); },
+        secondHandBaseLoan() { return Math.round(this.secondHand.price * (this.secondHand.ltv / 100)); },
+        secondHandMipAmount() {
+            if (this.secondHand.ltv <= 70) return 0;
+            return Math.round(this.secondHandBaseLoan * this.secondHandMipRate);
+        },
+        secondHandActualLoan() {
+            if (this.secondHand.ltv > 70 && this.secondHand.addMipToLoan) return this.secondHandBaseLoan + this.secondHandMipAmount;
+            return this.secondHandBaseLoan;
+        },
+        secondHandEffectiveStampDuty() { return this.secondHand.autoStampDuty ? this.calculatedStampDuty(this.secondHand.price) : (this.secondHand.stampDutyOverride || 0); },
+        secondHandCustomNetTotal() { return this.secondHand.customItems.reduce((sum, item) => sum + (item.amount || 0), 0); },
+        secondHandBankRebate() { return Math.round(this.secondHandBaseLoan * (this.secondHand.bankRebatePercent / 100)); },
+        secondHandRawTotal() {
+            return this.secondHandDownPayment + this.secondHandEffectiveStampDuty + (this.secondHand.legalFee || 0) + (this.secondHand.agencyFee || 0) + (this.secondHand.renovation || 0) + this.secondHandCustomNetTotal;
+        },
+        secondHandNetTotal() {
+            let total = this.secondHandRawTotal;
+            if (this.secondHand.ltv > 70 && !this.secondHand.addMipToLoan) total += this.secondHandMipAmount;
+            total -= this.secondHandBankRebate;
+            return Math.max(0, total);
+        },
+        secondHandMortgage() { return this.calculateMortgageDetails(this.secondHandActualLoan, this.secondHand.interestRate, this.secondHand.tenure); },
+
+        // --- COMPARISON COMPUTED ---
+        costDifference() { return this.secondHandNetTotal - this.firstHandNetTotal; },
+        costDifferencePercent() {
+            if (this.secondHandNetTotal === 0) return 0;
+            return Math.abs(Math.round((this.costDifference / this.secondHandNetTotal) * 100));
+        },
+        monthlyDiff() { return this.firstHandMortgage.monthly - this.secondHandMortgage.monthly; },
+
+        // --- AMORTIZATION SCHEDULE COMPUTED ---
+        activeAmortizationData() {
+            const isFH = this.selectedAmortizationTab === 'firstHand';
+            const loan = isFH ? this.firstHandActualLoan : this.secondHandActualLoan;
+            const rate = isFH ? this.firstHand.interestRate : this.secondHand.interestRate;
+            const tenure = isFH ? this.firstHand.tenure : this.secondHand.tenure;
+            const mData = this.calculateMortgageDetails(loan, rate, tenure);
+
+            return {
+                loanAmount: loan,
+                interestRate: rate,
+                tenureYears: tenure,
+                monthlyPayment: mData.monthly,
+                totalPayment: mData.monthly * tenure * 12,
+                totalInterest: (mData.monthly * tenure * 12) - loan
+            };
+        },
+        activeAmortizationSchedule() {
+            const isFH = this.selectedAmortizationTab === 'firstHand';
+            const loan = isFH ? this.firstHandActualLoan : this.secondHandActualLoan;
+            const rate = isFH ? this.firstHand.interestRate : this.secondHand.interestRate;
+            const tenure = isFH ? this.firstHand.tenure : this.secondHand.tenure;
+
+            return this.generateAmortizationSchedule(loan, rate, tenure, this.amortizationViewMode);
+        }
+    },
+    mounted() {
+        this.loadLocalSettings();
+        if (this.googleSheetUrl) {
+            this.fetchFromGoogleSheet();
+        }
+    },
+    methods: {
+        showToast(msg, type = 'success') {
+            this.toastMessage = msg;
+            this.toastType = type;
+            setTimeout(() => { this.toastMessage = ''; }, 3500);
+        },
+        formatNum(val) {
+            if (!val && val !== 0) return '0';
+            return Number(val).toLocaleString('en-US', { maximumFractionDigits: 0 });
+        },
+        formatDate(dateStr) {
+            if (!dateStr) return '';
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return dateStr;
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        },
+        loadLocalSettings() {
+            const savedUrl = localStorage.getItem('hk_property_gsheet_url');
+            if (savedUrl) {
+                this.googleSheetUrl = savedUrl;
+                this.inputGoogleSheetUrl = savedUrl;
+            }
+            const savedWishlist = localStorage.getItem('hk_property_wishlist');
+            if (savedWishlist) {
+                try { this.wishlist = JSON.parse(savedWishlist); } catch (e) {}
+            }
+        },
+        saveLocalWishlist() {
+            localStorage.setItem('hk_property_wishlist', JSON.stringify(this.wishlist));
+        },
+        openConfigModal() {
+            this.inputGoogleSheetUrl = this.googleSheetUrl;
+            this.showConfigModal = true;
+        },
+        saveConfigModal() {
+            this.googleSheetUrl = this.inputGoogleSheetUrl.trim();
+            localStorage.setItem('hk_property_gsheet_url', this.googleSheetUrl);
+            this.showConfigModal = false;
+            this.showToast('雲端 API 網址已儲存！');
+            if (this.googleSheetUrl) {
+                this.fetchFromGoogleSheet();
+            }
+        },
+        async syncItemToGoogleSheet(item) {
+            if (!this.googleSheetUrl) return;
+            this.isSyncing = true;
+            try {
+                await fetch(this.googleSheetUrl, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(item)
+                });
+                this.showToast('已成功同步至 Google Sheet！');
+            } catch (err) {
+                console.error(err);
+                this.showToast('雲端同步失敗 (CORS限制，請確保Apps Script設定正確)', 'error');
+            } finally {
+                this.isSyncing = false;
+            }
+        },
+        async fetchFromGoogleSheet() {
+            if (!this.googleSheetUrl) {
+                this.showToast('請先設定 Google Sheet Web App 網址', 'error');
+                return;
+            }
+            this.isSyncing = true;
+            try {
+                const res = await fetch(this.googleSheetUrl);
+                const data = await res.json();
+                if (Array.isArray(data) && data.length > 0) {
+                    this.wishlist = data;
+                    this.saveLocalWishlist();
+                    this.showToast('成功從 Google Sheet 載入跨手機最新數據！');
+                } else {
+                    this.showToast('雲端暫無數據');
+                }
+            } catch (err) {
+                console.error(err);
+                this.showToast('從 Google Sheet 讀取失敗', 'error');
+            } finally {
+                this.isSyncing = false;
+            }
+        },
+        openResetModal() { this.showResetModal = true; },
+        executeResetToDefault() {
+            this.wishlist = JSON.parse(JSON.stringify(INITIAL_WISHLIST));
+            this.saveLocalWishlist();
+            this.showResetModal = false;
+            this.showToast('已重置本地紀錄');
+        },
+        applyPreset(price) {
+            this.firstHand.price = price;
+            this.secondHand.price = price;
+            this.showToast(`已套用 ${this.formatNum(price)} 萬置業情境`);
+        },
+        calculateAvgSqftPrice(price, sqft) {
+            if (!sqft || sqft <= 0) return 0;
+            return Math.round(price / sqft);
+        },
+        calculatedStampDuty(price) {
+            if (price <= 3000000) return 100;
+            if (price <= 3500000) return Math.round(100 + (price - 3000000) * 0.10);
+            if (price <= 4500000) return Math.round(price * 0.015);
+            if (price <= 6000000) return Math.round(price * 0.03);
+            if (price <= 9000000) return Math.round(price * 0.045);
+            if (price <= 20000000) return Math.round(price * 0.06);
+            return Math.round(price * 0.0425);
+        },
+        calculateMipRate(ltv, tenure) {
+            if (ltv <= 70) return 0;
+            if (ltv <= 80) return tenure <= 25 ? 0.0215 : 0.025;
+            if (ltv <= 90) return tenure <= 25 ? 0.0315 : 0.036;
+            return 0.036;
+        },
+        calculateMortgageDetails(loan, annualRate, years) {
+            if (loan <= 0 || years <= 0) return { monthly: 0, minIncome: 0 };
+            const monthlyRate = (annualRate / 100) / 12;
+            const months = years * 12;
+            const monthly = Math.round(loan * (monthlyRate * Math.pow(1 + monthlyRate, months)) / (Math.pow(1 + monthlyRate, months) - 1));
+            const minIncome = Math.round((monthly * 2));
+            return { monthly, minIncome };
+        },
+        generateAmortizationSchedule(loan, annualRate, years, mode) {
+            if (loan <= 0 || years <= 0) return [];
+            const monthlyRate = (annualRate / 100) / 12;
+            const totalMonths = years * 12;
+            const monthlyPayment = this.calculateMortgageDetails(loan, annualRate, years).monthly;
+
+            let balance = loan;
+            let rawMonthlyList = [];
+
+            for (let m = 1; m <= totalMonths; m++) {
+                const interest = Math.round(balance * monthlyRate);
+                let principal = monthlyPayment - interest;
+                if (m === totalMonths) principal = balance;
+                balance = Math.max(0, balance - principal);
+                rawMonthlyList.push({ month: m, payment: principal + interest, principal, interest, balance });
+            }
+
+            if (mode === 'monthly') {
+                return rawMonthlyList;
+            } else {
+                let yearlyList = [];
+                for (let y = 1; y <= years; y++) {
+                    const slice = rawMonthlyList.slice((y - 1) * 12, y * 12);
+                    const yPayment = slice.reduce((a, c) => a + c.payment, 0);
+                    const yPrincipal = slice.reduce((a, c) => a + c.principal, 0);
+                    const yInterest = slice.reduce((a, c) => a + c.interest, 0);
+                    const endBalance = slice.length > 0 ? slice[slice.length - 1].balance : 0;
+                    yearlyList.push({ period: y, payment: yPayment, principal: yPrincipal, interest: yInterest, balance: endBalance });
+                }
+                return yearlyList;
+            }
+        },
+        openAddPropertyModal() {
+            this.isEditingProperty = false;
+            this.editingPropertyId = null;
+            this.propertyForm = {
+                sourceSelect: '中原',
+                sourceCustom: '',
+                address: '',
+                propertyType: '1手',
+                price: 6500000,
+                isTransacted: false,
+                sqft: 450,
+                updatedAt: new Date().toISOString().slice(0, 10),
+                notes: '',
+                url: ''
+            };
+            this.showPropertyModal = true;
+        },
+        editProperty(item) {
+            this.isEditingProperty = true;
+            this.editingPropertyId = item.id;
+            let src = item.source || '中原';
+            let customSrc = '';
+            if (!['中原', '美聯', '利嘉閣', '香港置業', 'House730', '世紀21'].includes(src)) {
+                src = '自訂/其他';
+                customSrc = item.source;
+            }
+            this.propertyForm = {
+                sourceSelect: src,
+                sourceCustom: customSrc,
+                address: item.address,
+                propertyType: item.propertyType || '1手',
+                price: item.price,
+                isTransacted: item.isTransacted || false,
+                sqft: item.sqft || 0,
+                updatedAt: item.updatedAt ? item.updatedAt.slice(0, 10) : new Date().toISOString().slice(0, 10),
+                notes: item.notes || '',
+                url: item.url || ''
+            };
+            this.showPropertyModal = true;
+        },
+        saveProperty() {
+            const finalSource = this.propertyForm.sourceSelect === '自訂/其他' ? (this.propertyForm.sourceCustom || '其他') : this.propertyForm.sourceSelect;
+            
+            if (this.isEditingProperty) {
+                const idx = this.wishlist.findIndex(i => i.id === this.editingPropertyId);
+                if (idx !== -1) {
+                    this.wishlist[idx] = {
+                        ...this.wishlist[idx],
+                        source: finalSource,
+                        address: this.propertyForm.address,
+                        propertyType: this.propertyForm.propertyType,
+                        price: Number(this.propertyForm.price),
+                        isTransacted: this.propertyForm.isTransacted,
+                        sqft: Number(this.propertyForm.sqft),
+                        updatedAt: this.propertyForm.updatedAt,
+                        notes: this.propertyForm.notes,
+                        url: this.propertyForm.url,
+                        status: 'ACTIVE'
+                    };
+                    this.syncItemToGoogleSheet(this.wishlist[idx]);
+                }
+            } else {
+                const newItem = {
+                    id: 'p_' + Date.now(),
+                    source: finalSource,
+                    address: this.propertyForm.address,
+                    propertyType: this.propertyForm.propertyType,
+                    price: Number(this.propertyForm.price),
+                    isTransacted: this.propertyForm.isTransacted,
+                    sqft: Number(this.propertyForm.sqft),
+                    updatedAt: this.propertyForm.updatedAt,
+                    notes: this.propertyForm.notes,
+                    url: this.propertyForm.url,
+                    status: 'ACTIVE'
+                };
+                this.wishlist.unshift(newItem);
+                this.syncItemToGoogleSheet(newItem);
+            }
+            this.saveLocalWishlist();
+            this.showPropertyModal = false;
+            this.showToast('樓盤紀錄已成功儲存並同步！');
+        },
+        confirmDeleteProperty(item) {
+            this.confirmDeleteModal.itemId = item.id;
+            this.confirmDeleteModal.itemAddress = item.address;
+            this.confirmDeleteModal.show = true;
+        },
+        executeDeleteProperty() {
+            const id = this.confirmDeleteModal.itemId;
+            const target = this.wishlist.find(i => i.id === id);
+            if (target) {
+                target.status = 'DELETED';
+                this.syncItemToGoogleSheet(target);
+            }
+            this.wishlist = this.wishlist.filter(i => i.id !== id);
+            this.saveLocalWishlist();
+            this.confirmDeleteModal.show = false;
+            this.showToast('已從網頁隱藏 (Google Sheet 保持 DELETED 完整歷史)');
+        },
+        loadPropertyToCalculator(item) {
+            if (item.propertyType === '1手') {
+                this.firstHand.price = item.price;
+            } else {
+                this.secondHand.price = item.price;
+            }
+            this.showToast(`已將「${item.address}」樓價 HK$ ${this.formatNum(item.price)} 帶入計算器！`);
+        },
+        addCustomItem(type) {
+            if (type === 'firstHand') {
+                this.firstHand.customItems.push({ name: '', amount: 0, isDevCovered: true });
+            } else {
+                this.secondHand.customItems.push({ name: '', amount: 0 });
+            }
+        },
+        removeCustomItem(type, index) {
+            if (type === 'firstHand') {
+                this.firstHand.customItems.splice(index, 1);
+            } else {
+                this.secondHand.customItems.splice(index, 1);
+            }
+        },
+        openAmortizationModal() { this.showAmortizationModal = true; },
+        copyForGoogleSheets() {
+            let tsv = this.columns.map(c => c.label).join('\t') + '\n';
+            this.wishlist.forEach(i => {
+                tsv += `${i.source || ''}\t${i.address || ''}\t${i.propertyType || ''}\t${i.price || 0}\t${i.sqft || 0}\t${this.calculateAvgSqftPrice(i.price, i.sqft)}\t${i.updatedAt || ''}\t${i.notes || ''}\t${i.url || ''}\n`;
+            });
+            const textarea = document.createElement('textarea');
+            textarea.value = tsv;
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                this.showToast('已成功複製 TSV 格式數據，可直接貼入 Google Sheets！');
+            } catch (err) {
+                this.showToast('複製失敗', 'error');
+            }
+            document.body.removeChild(textarea);
+        },
+        moveColumn(index, direction) {
+            const newIndex = index + direction;
+            if (newIndex >= 0 && newIndex < this.columns.length) {
+                const temp = this.columns[index];
+                this.columns[index] = this.columns[newIndex];
+                this.columns[newIndex] = temp;
+            }
+        },
+        handleDragStart(e, index) { this.draggedColIndex = index; e.dataTransfer.effectAllowed = 'move'; },
+        handleDragOver(e, index) { e.dataTransfer.dropEffect = 'move'; },
+        handleDrop(e, index) {
+            if (this.draggedColIndex !== null && this.draggedColIndex !== index) {
+                const item = this.columns.splice(this.draggedColIndex, 1)[0];
+                this.columns.splice(index, 0, item);
+            }
+            this.draggedColIndex = null;
+        },
+        handleDragEnd() { this.draggedColIndex = null; }
+    }
+}).mount('#app');
+</script>
+</body>
+</html>
